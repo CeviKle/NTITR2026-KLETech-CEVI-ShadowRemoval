@@ -6,6 +6,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from contextlib import nullcontext
 
 from saicinpainting.training.modules.base import get_activation, BaseDiscriminator
 from saicinpainting.training.modules.spatial_transform import LearnableSpatialTransformWrapper
@@ -75,42 +76,48 @@ class FourierUnit(nn.Module):
 
     def forward(self, x):
         batch = x.shape[0]
+        orig_dtype = x.dtype
 
-        if self.spatial_scale_factor is not None:
-            orig_size = x.shape[-2:]
-            x = F.interpolate(x, scale_factor=self.spatial_scale_factor, mode=self.spatial_scale_mode, align_corners=False)
+        # cuFFT in half precision requires power-of-two sizes; run this block in fp32.
+        autocast_ctx = torch.cuda.amp.autocast(enabled=False) if x.is_cuda else nullcontext()
+        with autocast_ctx:
+            x = x.float()
 
-        r_size = x.size()
-        # (batch, c, h, w/2+1, 2)
-        fft_dim = (-3, -2, -1) if self.ffc3d else (-2, -1)
-        ffted = torch.fft.rfftn(x, dim=fft_dim, norm=self.fft_norm)
-        ffted = torch.stack((ffted.real, ffted.imag), dim=-1)
-        ffted = ffted.permute(0, 1, 4, 2, 3).contiguous()  # (batch, c, 2, h, w/2+1)
-        ffted = ffted.view((batch, -1,) + ffted.size()[3:])
+            if self.spatial_scale_factor is not None:
+                orig_size = x.shape[-2:]
+                x = F.interpolate(x, scale_factor=self.spatial_scale_factor, mode=self.spatial_scale_mode, align_corners=False)
 
-        if self.spectral_pos_encoding:
-            height, width = ffted.shape[-2:]
-            coords_vert = torch.linspace(0, 1, height)[None, None, :, None].expand(batch, 1, height, width).to(ffted)
-            coords_hor = torch.linspace(0, 1, width)[None, None, None, :].expand(batch, 1, height, width).to(ffted)
-            ffted = torch.cat((coords_vert, coords_hor, ffted), dim=1)
+            r_size = x.size()
+            # (batch, c, h, w/2+1, 2)
+            fft_dim = (-3, -2, -1) if self.ffc3d else (-2, -1)
+            ffted = torch.fft.rfftn(x, dim=fft_dim, norm=self.fft_norm)
+            ffted = torch.stack((ffted.real, ffted.imag), dim=-1)
+            ffted = ffted.permute(0, 1, 4, 2, 3).contiguous()  # (batch, c, 2, h, w/2+1)
+            ffted = ffted.view((batch, -1,) + ffted.size()[3:])
 
-        if self.use_se:
-            ffted = self.se(ffted)
+            if self.spectral_pos_encoding:
+                height, width = ffted.shape[-2:]
+                coords_vert = torch.linspace(0, 1, height)[None, None, :, None].expand(batch, 1, height, width).to(ffted)
+                coords_hor = torch.linspace(0, 1, width)[None, None, None, :].expand(batch, 1, height, width).to(ffted)
+                ffted = torch.cat((coords_vert, coords_hor, ffted), dim=1)
 
-        ffted = self.conv_layer(ffted)  # (batch, c*2, h, w/2+1)
-        ffted = self.relu(self.bn(ffted))
+            if self.use_se:
+                ffted = self.se(ffted)
 
-        ffted = ffted.view((batch, -1, 2,) + ffted.size()[2:]).permute(
-            0, 1, 3, 4, 2).contiguous()  # (batch,c, t, h, w/2+1, 2)
-        ffted = torch.complex(ffted[..., 0], ffted[..., 1])
+            ffted = self.conv_layer(ffted)  # (batch, c*2, h, w/2+1)
+            ffted = self.relu(self.bn(ffted))
 
-        ifft_shape_slice = x.shape[-3:] if self.ffc3d else x.shape[-2:]
-        output = torch.fft.irfftn(ffted, s=ifft_shape_slice, dim=fft_dim, norm=self.fft_norm)
+            ffted = ffted.view((batch, -1, 2,) + ffted.size()[2:]).permute(
+                0, 1, 3, 4, 2).contiguous()  # (batch,c, t, h, w/2+1, 2)
+            ffted = torch.complex(ffted[..., 0], ffted[..., 1])
 
-        if self.spatial_scale_factor is not None:
-            output = F.interpolate(output, size=orig_size, mode=self.spatial_scale_mode, align_corners=False)
+            ifft_shape_slice = x.shape[-3:] if self.ffc3d else x.shape[-2:]
+            output = torch.fft.irfftn(ffted, s=ifft_shape_slice, dim=fft_dim, norm=self.fft_norm)
 
-        return output
+            if self.spatial_scale_factor is not None:
+                output = F.interpolate(output, size=orig_size, mode=self.spatial_scale_mode, align_corners=False)
+
+        return output.to(dtype=orig_dtype)
 
 
 class SpectralTransform(nn.Module):

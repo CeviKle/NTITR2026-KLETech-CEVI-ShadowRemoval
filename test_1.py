@@ -58,8 +58,7 @@ with torch.no_grad():
         frame_out = frame_out.to(device)
     
         name = re.findall("\d+",str(name))
-        imwrite(frame_out, os.path.join(output_dir, str(name[0])+'.png'), range=(0, 1))
-
+        imwrite(frame_out, os.path.join(output_dir, str(name[0])+'.png'), value_range=(0, 1))
 
 
 

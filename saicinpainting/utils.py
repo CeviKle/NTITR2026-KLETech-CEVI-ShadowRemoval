@@ -3,19 +3,29 @@ import functools
 import logging
 import numbers
 import os
+import random
 import signal
 import sys
 import traceback
 import warnings
 
+import numpy as np
 import torch
-from pytorch_lightning import seed_everything
 
 LOGGER = logging.getLogger(__name__)
 
 import platform
 if platform.system() != 'Linux':
     signal.SIGUSR1 = 1
+
+
+def seed_everything(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    return seed
 
 def check_and_warn_input_range(tensor, min_value, max_value, name):
     actual_min = tensor.min()
