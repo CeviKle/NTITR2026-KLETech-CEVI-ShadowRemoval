@@ -4,7 +4,7 @@
 
 This repository contains our implementation for the **NTIRE 2026 Shadow Removal Challenge**. The task focuses on restoring clean images from shadow-affected scenes while preserving natural colors, illumination, and fine details.
 
-Our main implementation is built around the **final_net** pipeline. We also tested an additional **OATH** branch using the pretrained checkpoint `net_g_9600.pth`.
+Our main implementation is built around the **final_net** pipeline.
 
 ---
 
@@ -81,10 +81,6 @@ Optional full checkpoints:
 * `weights/epoch_190.pth`
 * `weights/epoch_200.pth`
 
-Optional OATH checkpoint:
-
-* `weights/net_g_9600.pth`
-
 ---
 
 ## 5. GPU Usage
@@ -160,23 +156,6 @@ CUDA_VISIBLE_DEVICES=0 python train_psnr_boost.py \
   --device cuda:0
 ```
 
-### 7.2 OATH Fine-Tuning
-
-```bash
-CUDA_VISIBLE_DEVICES=0 python fine_tune_oath.py \
-  --train_inp /NTIRE2026/C4_ShdwRem/train_inp \
-  --train_gt /NTIRE2026/C4_ShdwRem/train_gt \
-  --init_ckpt weights/net_g_9600.pth \
-  --out_dir weights/oath_finetune \
-  --epochs 20 \
-  --patch_size 320 \
-  --num_workers 4 \
-  --val_every 1 \
-  --val_max_images 40 \
-  --device cuda:0
-```
-
----
 
 ## 8. Validation and Test Inference
 
@@ -206,19 +185,6 @@ CUDA_VISIBLE_DEVICES=0 python test.py \
   --output_dir test_run_b/cand_epoch_200_strong
 ```
 
-### 8.3 OATH Test Inference
-
-```bash
-cd oath-main
-CUDA_VISIBLE_DEVICES=0 python Enhancement/test_unpair.py \
-  --input_dir /NTIRE2026/runs/C4_ShdwRem/NTIRE_ShadowRemoval_2025/test_inputs/ntire26_shadow_test_in \
-  --output_dir /NTIRE2026/runs/C4_ShdwRem/NTIRE_ShadowRemoval_2025/oath_test_outputs_ntire26_official \
-  --weights /NTIRE2026/runs/C4_ShdwRem/NTIRE_ShadowRemoval_2025/weights/net_g_9600.pth \
-  --opt Options/DualRetiUHDM_His_illu.yml \
-  --gpus 0
-```
-
----
 
 ## 9. Submission
 
